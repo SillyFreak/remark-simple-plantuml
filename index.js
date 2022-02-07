@@ -1,8 +1,20 @@
+const fs = require('fs');
+const { pipeline } = require('stream');
+const { promisify } = require('util');
+
+const axios = require('axios');
 const visit = require("unist-util-visit");
 const plantumlEncoder = require("plantuml-encoder");
 
+const pipe = promisify(pipeline);
+
 const DEFAULT_OPTIONS = {
-  baseUrl: "https://www.plantuml.com/plantuml/png"
+  // where the generated link points
+  baseUrl: "https://www.plantuml.com/plantuml/png",
+  // download; if omitted, no download is performed
+  // this would normally be combined with something like baseUrl: "/static/plantuml"
+  download: undefined,
+  // download: { source: "https://www.plantuml.com/plantuml/png", destination: "./static/plantuml", extension: ".png" }
 };
 
 /**
@@ -17,17 +29,54 @@ const DEFAULT_OPTIONS = {
  */
 function remarkSimplePlantumlPlugin(pluginOptions) {
   const options = { ...DEFAULT_OPTIONS, ...pluginOptions };
+  const baseUrl = options.baseUrl.replace(/\/$/, "");
 
-  return function transformer(syntaxTree) {
+  let download;
+  if (options.download) {
+    let { source, destination, extension } = options.download;
+    if (extension === undefined) {
+      let i = source.lastIndexOf("/");
+      extension = `.${source.substring(i + 1)}`;
+    }
+
+    download = async (encoded) => {
+      const filename = `${destination}/${encoded}${extension}`;
+
+      if (fs.existsSync(filename)) {
+        console.log("found:", filename);
+        return;
+      }
+
+      const response = await axios.get(`${source}/${encoded}`, { responseType: 'stream' });
+      await pipe(response.data, fs.createWriteStream(filename));
+
+      console.log("downloaded:", filename);
+    };
+  } else {
+    download = async (_encoded) => {
+      // noop
+    };
+  }
+
+  return async function transformer(syntaxTree) {
+    const downloads = [];
+
     visit(syntaxTree, "code", node => {
       let { lang, value, meta } = node;
       if (!lang || !value || lang !== "plantuml") return;
 
+      const encoded = plantumlEncoder.encode(value);
+
+      downloads.push(download(encoded));
+
       node.type = "image";
-      node.url = `${options.baseUrl.replace(/\/$/, "")}/${plantumlEncoder.encode(value)}`;
+      node.url = `${baseUrl}/${encoded}`;
       node.alt = meta;
       node.meta = undefined;
     });
+
+    await Promise.all(downloads);
+
     return syntaxTree;
   };
 }
