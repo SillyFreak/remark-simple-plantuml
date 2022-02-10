@@ -30,11 +30,14 @@ const DEFAULT_OPTIONS = {
 function remarkSimplePlantumlPlugin(pluginOptions) {
   const options = { ...DEFAULT_OPTIONS, ...pluginOptions };
   const baseUrl = options.baseUrl.replace(/\/$/, "");
+  let extension = "";
 
   let download;
   if (options.download) {
-    let { source, destination, extension } = options.download;
-    if (extension === undefined) {
+    const { source, destination, extension: ex } = options.download;
+    if (ex !== undefined) {
+      extension = ex;
+    } else {
       let i = source.lastIndexOf("/");
       extension = `.${source.substring(i + 1)}`;
     }
@@ -43,14 +46,14 @@ function remarkSimplePlantumlPlugin(pluginOptions) {
       const filename = `${destination}/${encoded}${extension}`;
 
       if (fs.existsSync(filename)) {
-        console.log("found:", filename);
+        // console.log("found:", filename);
         return;
       }
 
       const response = await axios.get(`${source}/${encoded}`, { responseType: 'stream' });
       await pipe(response.data, fs.createWriteStream(filename));
 
-      console.log("downloaded:", filename);
+      // console.log("downloaded:", filename);
     };
   } else {
     download = async (_encoded) => {
@@ -70,7 +73,7 @@ function remarkSimplePlantumlPlugin(pluginOptions) {
       downloads.push(download(encoded));
 
       node.type = "image";
-      node.url = `${baseUrl}/${encoded}`;
+      node.url = `${baseUrl}/${encoded}${extension}`;
       node.alt = meta;
       node.meta = undefined;
     });
